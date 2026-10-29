@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "graft-cloudflare",
+  "main": "src/index.ts",
+  // Kept at the newest date supported by the pinned local Workers runtime.
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "secrets": {
+    "required": ["GRAFT_REMOTE_TOKEN"]
+  },
+  // Wrangler and Deploy to Cloudflare create an account-local bucket and retain
+  // its association with this Worker. No shared bucket name or account ID.
+  "r2_buckets": [{ "binding": "OBJECTS" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "REPOSITORIES", "class_name": "RepositoryDurableObject" },
+      { "name": "DIRECTORY", "class_name": "PersonalDirectoryDurableObject" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "RepositoryDurableObject",
+        "PersonalDirectoryDurableObject"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    }
+  }
+}

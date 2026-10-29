@@ -1,0 +1,4 @@
+# Generate a random secret with `pnpm token`, then paste it here for local use.
+# Deploy to Cloudflare detects this secret and asks for its value during setup.
+# The service rejects missing, short, and example credentials.
+GRAFT_REMOTE_TOKEN=
