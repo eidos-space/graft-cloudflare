@@ -58,7 +58,7 @@ app.get("/healthz", async (context) => {
 
 app.get("/setup", async (context) => {
   if (await setupClosed(context.env)) return setupPage("Setup is complete", "The access key cannot be displayed again. Use the key you saved, or configure a replacement Worker secret in Cloudflare.", "", 409);
-  return setupPage("Set up your Graft server", "Anyone who knows this public address can claim the server until setup is complete. Continue now, then save the key securely. The key grants access to every repository.", '<form method="post" action="/setup"><button type="submit">Generate access key</button></form>');
+  return setupPage("Set up your Graft server", "Anyone who knows this public address can claim the server until setup is complete. Continue now, then save the key securely. The key grants access to every repository.", '<form method="post" action="/setup"><button type="submit">Generate access key</button></form>', 200, "same-origin");
 });
 
 app.post("/setup", async (context) => {
@@ -223,10 +223,10 @@ async function authenticate(request: Request, env: Bindings): Promise<void> {
   }
 }
 
-function setupPage(title: string, description: string, content: string, status = 200): Response {
+function setupPage(title: string, description: string, content: string, status = 200, referrerPolicy: "same-origin" | "no-referrer" = "no-referrer"): Response {
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>body{font:16px system-ui,sans-serif;max-width:36rem;margin:12vh auto;padding:0 1.25rem;line-height:1.6;color:#202124}h1{font-size:1.65rem}button{background:#222;color:white;border:0;border-radius:6px;padding:.7rem 1rem;cursor:pointer}pre{padding:1rem;background:#f2f2f2;overflow-wrap:anywhere;white-space:pre-wrap;user-select:all}</style></head><body><h1>${title}</h1><p>${description}</p>${content}</body></html>`, {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" },
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "Referrer-Policy": referrerPolicy, "X-Content-Type-Options": "nosniff" },
   });
 }
 

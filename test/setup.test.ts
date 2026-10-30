@@ -24,7 +24,11 @@ describe("first setup", () => {
   it("allows exactly one same-origin claim, stores only a digest, and authenticates that key", async () => {
     const bindings = isolated();
     expect((await call(bindings, "/healthz")).status).toBe(503);
-    expect((await call(bindings, "/setup")).status).toBe(200);
+    const page = await call(bindings, "/setup");
+    expect(page.status).toBe(200);
+    // A no-referrer policy makes browsers send Origin: null on form POSTs.
+    expect(page.headers.get("Referrer-Policy")).toBe("same-origin");
+    expect((await call(bindings, "/setup", { method: "POST", headers: { Origin: "null" } })).status).toBe(403);
     expect((await call(bindings, "/setup", { method: "POST", headers: { Origin: "https://elsewhere.example" } })).status).toBe(403);
     const attempts = await Promise.all(Array.from({ length: 8 }, () => call(bindings, "/setup", { method: "POST", headers: { Origin: origin } })));
     expect(attempts.filter((result) => result.status === 200)).toHaveLength(1);
@@ -32,6 +36,7 @@ describe("first setup", () => {
     const body = await attempts.find((result) => result.status === 200)!.text();
     const token = body.match(/<pre>([A-Za-z0-9_-]{43})<\/pre>/)?.[1];
     expect(token).toBeDefined();
+    expect(attempts.find((result) => result.status === 200)?.headers.get("Referrer-Policy")).toBe("no-referrer");
     const stored = await bindings.DIRECTORY.getByName("personal").accessState();
     expect(stored.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect(stored.tokenHash).not.toContain(token);
