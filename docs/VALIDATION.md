@@ -9,12 +9,13 @@ not establish successful Cloudflare dashboard deployment or free-plan capacity.
 
 - `pnpm install`: standalone published dependencies, with no workspace links.
 - `pnpm check`: generated binding types match Wrangler; strict TypeScript passes.
-- `pnpm test`: 33 Workers-runtime integration tests pass.
-- `pnpm dry-run`: deployable bundle generated, 225.72 KiB / 48.89 KiB gzip;
+- `pnpm test`: 36 Workers-runtime integration tests pass, including one-time
+  setup, concurrent claims, and secret-based recovery.
+- `pnpm dry-run`: deployable bundle generated;
   R2 and both SQLite Durable Object bindings are present.
 - `pnpm smoke`: HTTP encrypted provisioning/descriptor, plain create-only writes,
-  and Range reads pass against local Wrangler.
-- `pnpm smoke:sdk`: real native E2EE initialization, verified first push, wrong
+  and Range reads pass against local Wrangler after claiming a generated key.
+- Before this setup change, `pnpm smoke:sdk` passed: real native E2EE initialization, verified first push, wrong
   password rejection, independent device clone/unlock, and SQLite plus attachment
   updates returning to the first device pass against local Wrangler.
 
@@ -37,8 +38,9 @@ Graft packages emit missing-source sourcemap warnings; all tests still pass.
 ## Cloudflare dashboard acceptance still required
 
 1. Exercise the public Deploy to Cloudflare button in an account with R2 enabled.
-2. Confirm it prompts for `GRAFT_REMOTE_TOKEN`, creates a private account-local
+2. Confirm it needs no pre-generated token, creates a private account-local
    bucket and both SQLite DO bindings, and needs no official Eidos account.
+   Complete `/setup`, verify its one-time key and recovery, and redeploy.
 3. Repeat encrypted push, clone/unlock, and pull against the deployed origin.
 4. Redeploy to the same Worker and verify UUID and data persistence.
 5. Measure actual request CPU and storage usage before promising free-plan

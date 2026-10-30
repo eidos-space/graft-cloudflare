@@ -15,14 +15,16 @@
 你需要启用 Workers 和 R2 的 Cloudflare 账户，以及接收 Cloudflare 创建的仓库副本的
 GitHub 或 GitLab 账户。R2 需要单独开通并完成计费设置，即使用量在免费额度内也是如此。
 
-1. 在密码管理器中生成随机访问密钥，或在本地仓库运行 `pnpm token`。
-   至少使用 32 个字符；`pnpm token` 会生成包含 256 位随机性的密钥。
-2. 点击**部署到 Cloudflare**，连接账户，选择 Worker 和仓库名称。
-3. 将密钥填入 **GRAFT_REMOTE_TOKEN** Secret，并保存在密码管理器中；各台设备使用同一密钥。
-4. 开始部署。Cloudflare 根据 `wrangler.jsonc` 创建 R2 存储桶和 SQLite Durable Objects，
+1. 点击**部署到 Cloudflare**，连接账户，选择 Worker 和仓库名称。Cloudflare 会在
+   按钮流程中自动创建 Git 仓库副本，无需手动 fork 或 clone。
+2. 开始部署。Cloudflare 根据 `wrangler.jsonc` 创建 R2 存储桶和 SQLite Durable Objects，
    无需手动填写账户资源 ID，也不要求自定义域名。
-5. 复制部署得到的 HTTPS `workers.dev` 地址，打开 `/healthz` 检查服务。
-   管理接口和仓库地址使用同一来源地址。
+3. 部署完成后立即打开 HTTPS `workers.dev` 地址下的 `/setup`，生成访问密钥并保存在
+   密码管理器中。密钥仅显示一次，各台设备使用同一密钥。首次配置完成前，任何知道
+   公网地址的人都可能抢先领取；如果发现服务已被配置，请参见[访问恢复](docs/OPERATIONS.zh-CN.md#访问与密钥轮换)。
+4. 打开 `/healthz` 检查服务。
+   返回 `200` 和 `"status":"ok"` 表示访问已配置且目录 Durable Object 有响应；
+   这**不代表** R2 或仓库 Durable Object 已验证可用。管理接口和仓库地址使用同一来源地址。
 
 密钥可以访问**该部署中的所有仓库**。这是个人服务，不提供用户注册或多租户共享功能。
 
@@ -54,11 +56,10 @@ pnpm dev
 
 ```sh
 pnpm exec wrangler login
-pnpm exec wrangler secret put GRAFT_REMOTE_TOKEN
 pnpm deploy
 ```
 
-Wrangler 会在首次部署时自动创建 R2 绑定。后续升级应保留同一个 Worker 和资源关联。
+部署完成后按上述步骤打开 `/setup`。Wrangler 会在首次部署时自动创建 R2 绑定。后续升级应保留同一个 Worker 和资源关联。
 更换 Worker 名称可能创建独立服务，不会迁移已有数据。
 
 ## 创建与查找仓库
@@ -91,6 +92,14 @@ curl --fail-with-body \
   --header "Authorization: Bearer $GRAFT_REMOTE_TOKEN" \
   "$GRAFT_ORIGIN/api/graft/repositories"
 ```
+
+成功列出仓库还会检查密钥，但不会检查 R2。创建仓库会测试
+初始化；下面的冒烟检查还会写入和读取对象数据。不要仅凭 `/healthz` 判断部署完全可用。
+
+如果 `/healthz` 返回 `503`，请完成 `/setup` 或检查用于恢复的 Secret。如果列出仓库返回 `401`，
+检查客户端使用的密钥是否相同。构建或资源创建失败时，请检查 Cloudflare 构建／部署日志，
+并确认已开通 R2。不要在日志或求助内容中包含密钥。如果健康检查通过但存储操作失败，
+请检查 Worker 日志以及 `OBJECTS`、`DIRECTORY` 和 `REPOSITORIES` 绑定。
 
 仓库 URL 形如 `https://your-host/personal/notes`。固定的 `personal` 是路径布局，
 不是租户标识。必须先创建仓库才能访问协议接口；未知仓库不会被自动创建为明文仓库。
@@ -164,10 +173,13 @@ pnpm dry-run
 
 运行 `pnpm dev` 后，`pnpm smoke` 会读取本地 `.dev.vars`，创建少量冒烟仓库并检查服务。
 验证自己的部署时，请显式设置 `GRAFT_SMOKE_ORIGIN` 和 `GRAFT_REMOTE_TOKEN`。
+每次运行会永久创建两个仓库，其中一个是明文仓库；目前没有仓库删除 API。
+如果不希望测试记录和对象留在个人服务中，请使用临时部署。
 
 `pnpm smoke:sdk` 还会验证加密初始化、两个独立设备会话，以及 SQLite 和附件回传。
 将 `GRAFT_SDK_PATH` 设为支持 E2EE 的 Graft Node SDK 包路径；使用独立原生构建时，
 另设 `GRAFT_SDK_NATIVE_PATH`。服务端本身不需要安装该 SDK 或原生构建。
+每次 SDK 冒烟测试也会永久创建一个加密仓库。
 
 ## 许可证
 

@@ -4,15 +4,19 @@
 
 ## Access and rotation
 
-`GRAFT_REMOTE_TOKEN` is the single deployment-wide bearer secret. Every device
+The key generated at `/setup` is the single deployment-wide bearer secret. Every device
 with this token can read and write every repository and create repositories.
 There are no independent users, device grants, or per-repository permissions.
 
 Use a password manager to retain a high-entropy token. Never add it to a remote
 URL, Wrangler `vars`, a shell command committed to Git, an issue, or a support
-log. The Worker fails closed when the configured token is absent or unsuitable.
+log. The service stores a SHA-256 digest of the generated key and shows the key
+only once. A lost response cannot be replayed; use the recovery procedure below.
 
-To rotate the token, generate a replacement and update the secret:
+To recover access or rotate the token, generate a new random value with at least
+32 characters and set a `GRAFT_REMOTE_TOKEN` **secret** in your Worker's
+Cloudflare dashboard under Settings > Variables and Secrets, then deploy the
+change. You can instead use Wrangler from a local checkout:
 
 ```sh
 pnpm token
@@ -21,7 +25,10 @@ pnpm exec wrangler secret put GRAFT_REMOTE_TOKEN
 
 Update all connected devices. Rotation does not modify repository UUIDs,
 encrypted objects, or client encryption passwords. In-flight requests may
-complete; do not treat rotation as deletion of stored data.
+complete; do not treat rotation as deletion of stored data. Once the Worker
+observes a valid dashboard secret it invalidates the generated key and closes
+setup permanently, even if the secret is later removed. An invalid secret fails
+closed. Existing deployments with `GRAFT_REMOTE_TOKEN` continue to use it.
 
 ## Upgrades
 
@@ -43,6 +50,7 @@ Keep a verified local clone and an independent backup of important data.
 A complete server backup must preserve a consistent set of:
 
 - repository directory records and stable internal IDs;
+- access configuration and the retained access key or recovery procedure;
 - repository encryption profiles and UUIDs;
 - exact mutable HEAD/reference bytes;
 - immutable R2 objects, including retained encrypted staging-backed objects;

@@ -36,6 +36,39 @@ export class PersonalDirectoryDurableObject extends DurableObject<Env> {
         ready INTEGER NOT NULL DEFAULT 0 CHECK (ready IN (0, 1))
       )
     `);
+    this.ctx.storage.sql.exec(`
+      CREATE TABLE IF NOT EXISTS access_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token_hash TEXT
+      )
+    `);
+  }
+
+  async accessState(): Promise<{ initialized: boolean; tokenHash: string | null }> {
+    const row = this.ctx.storage.sql.exec<{ token_hash: string | null }>(
+      "SELECT token_hash FROM access_state WHERE id = 1",
+    ).toArray()[0];
+    const existing = this.ctx.storage.sql.exec<{ present: number }>(
+      "SELECT 1 AS present FROM repositories LIMIT 1",
+    ).toArray().length > 0;
+    return { initialized: row !== undefined || existing, tokenHash: row?.token_hash ?? null };
+  }
+
+  async claimAccess(tokenHash: string): Promise<boolean> {
+    return this.ctx.storage.transactionSync(() => {
+      const exists = this.ctx.storage.sql.exec("SELECT 1 FROM access_state WHERE id = 1").toArray().length > 0;
+      const repositories = this.ctx.storage.sql.exec("SELECT 1 FROM repositories LIMIT 1").toArray().length > 0;
+      if (exists || repositories) return false;
+      this.ctx.storage.sql.exec("INSERT INTO access_state(id, token_hash) VALUES (1, ?)", tokenHash);
+      return true;
+    });
+  }
+
+  /** A dashboard secret replaces any generated credential and permanently closes setup. */
+  async useExternalToken(): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO access_state(id, token_hash) VALUES (1, NULL) ON CONFLICT(id) DO UPDATE SET token_hash = NULL WHERE token_hash IS NOT NULL",
+    );
   }
 
   /** Reserve the identity before any remote I/O so retries always provision the same UUID. */

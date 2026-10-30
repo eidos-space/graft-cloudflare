@@ -3,12 +3,13 @@
 [English](API.md)
 
 管理接口与协议接口使用同一个 HTTPS 来源地址。需要认证的请求携带
-`Authorization: Bearer <GRAFT_REMOTE_TOKEN>`。不要向这些接口发送加密密码。
+`Authorization: Bearer <访问密钥>`。不要向这些接口发送加密密码。
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
 | GET | `/` | 公开服务信息 |
 | GET | `/healthz` | 公开配置健康检查，密钥未配置时返回 503 |
+| GET, POST | `/setup` | 一次性配置页面及密钥领取 |
 | GET | `/.well-known/graft` | 公开服务发现 |
 | GET | `/api/graft/repositories` | 列出所有者的仓库 |
 | PUT | `/api/graft/repositories/:name` | 显式、幂等地创建仓库 |

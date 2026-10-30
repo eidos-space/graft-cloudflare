@@ -4,13 +4,16 @@
 
 ## 访问与密钥轮换
 
-`GRAFT_REMOTE_TOKEN` 是部署共用的 bearer 密钥。持有密钥的设备可以读写所有仓库，
+`/setup` 生成的密钥是部署共用的 bearer 密钥。持有密钥的设备可以读写所有仓库，
 也可以创建仓库。服务不提供独立用户、设备授权或按仓库划分的权限。
 
 用密码管理器保存高随机性的密钥。不要将它写入远端 URL、Wrangler `vars`、
-提交到 Git 的 shell 命令、Issue 或支持日志。密钥缺失或不符合要求时，Worker 拒绝访问。
+提交到 Git 的 shell 命令、Issue 或支持日志。服务只保存生成密钥的 SHA-256 摘要，
+密钥仅显示一次；如果页面响应丢失，请使用下面的恢复流程。
 
-轮换密钥时，生成新密钥并更新 Secret：
+恢复访问或轮换密钥时，生成至少 32 个字符的随机密钥，在 Cloudflare 控制台中打开
+该 Worker 的 Settings > Variables and Secrets，设置 `GRAFT_REMOTE_TOKEN` Secret 并部署。
+也可以在本地仓库使用 Wrangler：
 
 ```sh
 pnpm token
@@ -18,7 +21,9 @@ pnpm exec wrangler secret put GRAFT_REMOTE_TOKEN
 ```
 
 随后更新所有连接设备。轮换不会修改仓库 UUID、加密对象或客户端加密密码。
-已经开始的请求可能完成；密钥轮换不会删除已存储数据。
+已经开始的请求可能完成；密钥轮换不会删除已存储数据。Worker 一旦读取到有效的
+控制台 Secret，就会使生成的密钥失效并永久关闭首次配置，即使之后删除 Secret 也不会重开。
+无效的 Secret 会阻止访问。原来使用 `GRAFT_REMOTE_TOKEN` 的部署仍可继续使用。
 
 ## 升级
 
@@ -36,6 +41,7 @@ pnpm exec wrangler secret put GRAFT_REMOTE_TOKEN
 完整服务备份需要保留一致的以下数据：
 
 - 仓库目录记录及稳定的内部 ID；
+- 访问配置，以及已保存的访问密钥或恢复方法；
 - 仓库加密类型和 UUID；
 - HEAD/引用的精确字节；
 - 不可变 R2 对象，包括仍被保留的加密 staging 对象；

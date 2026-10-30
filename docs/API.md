@@ -3,13 +3,14 @@
 [简体中文](API.zh-CN.md)
 
 Use the same HTTPS origin as the protocol endpoints. Authenticated requests
-carry `Authorization: Bearer <GRAFT_REMOTE_TOKEN>`. Never send an encryption
+carry `Authorization: Bearer <access-key>`. Never send an encryption
 password to these endpoints.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/` | Public service information |
 | GET | `/healthz` | Public configuration health; 503 when the token is not configured |
+| GET, POST | `/setup` | One-time setup page and access-key claim |
 | GET | `/.well-known/graft` | Public service discovery |
 | GET | `/api/graft/repositories` | List the owner's repositories |
 | PUT | `/api/graft/repositories/:name` | Idempotent explicit repository provisioning |

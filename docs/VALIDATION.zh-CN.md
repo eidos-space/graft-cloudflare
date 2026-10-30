@@ -9,11 +9,11 @@
 
 - `pnpm install`：独立安装公开发布的依赖，不使用 workspace 链接。
 - `pnpm check`：Wrangler 绑定类型与配置一致，严格 TypeScript 检查通过。
-- `pnpm test`：33 项 Workers 运行时集成测试通过。
-- `pnpm dry-run`：生成可部署 bundle，225.72 KiB，gzip 后 48.89 KiB；
+- `pnpm test`：36 项 Workers 运行时集成测试通过，包括一次性配置、并发领取和 Secret 恢复。
+- `pnpm dry-run`：生成可部署 bundle；
   包含 R2 和两个 SQLite Durable Object 绑定。
-- `pnpm smoke`：本地 Wrangler 上的加密仓库创建、描述符、普通仓库条件写入及 Range 读取通过。
-- `pnpm smoke:sdk`：真实原生 SDK 完成加密初始化、首次上传后的独立下载验证、
+- `pnpm smoke`：本地 Wrangler 领取生成的密钥后，加密仓库创建、描述符、普通仓库条件写入及 Range 读取通过。
+- 首次配置改动之前，`pnpm smoke:sdk` 已通过：真实原生 SDK 完成加密初始化、首次上传后的独立下载验证、
   错误密码拒绝、第二设备克隆解锁，以及 SQLite 和附件改动回传第一设备。
 
 集成测试还覆盖 HTTPS/loopback 限制、共享密钥鉴权及缺失/弱密钥拒绝、显式建库、
@@ -31,8 +31,8 @@ Wrangler 4.155.0 和当前测试插件内置运行时支持到 2026-10-23，因�
 ## 尚待 Cloudflare 控制台验收
 
 1. 在已开通 R2 的账户中实际点击公开部署按钮。
-2. 确认提示输入 `GRAFT_REMOTE_TOKEN`，创建私有账户存储桶和两个 SQLite DO 绑定，
-   不依赖官方 Eidos 账户。
+2. 确认无需预先生成密钥，创建私有账户存储桶和两个 SQLite DO 绑定，不依赖官方 Eidos 账户；
+   完成 `/setup`，验证密钥仅显示一次、恢复流程及重新部署。
 3. 对部署后的地址执行加密上传、克隆解锁及回传验证。
 4. 更新同一个 Worker 后确认 UUID 和数据保留。
 5. 测量实际请求 CPU 和存储用量，再判断具体使用场景的免费额度容量。

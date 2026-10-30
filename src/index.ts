@@ -14,7 +14,8 @@ import {
 export { RepositoryDurableObject } from "@eidos.space/graft-remote-cloudflare";
 export { PersonalDirectoryDurableObject } from "./directory.js";
 
-type AppEnv = { Bindings: Env };
+type Bindings = Env & { GRAFT_REMOTE_TOKEN?: string };
+type AppEnv = { Bindings: Bindings };
 const SERVICE = "graft-cloudflare";
 const NAMESPACE = "personal";
 const MANAGEMENT_BODY_LIMIT = 4096;
@@ -47,12 +48,30 @@ app.get("/", (context) => context.json({
   health: "/healthz",
 }));
 
-app.get("/healthz", (context) => {
-  const configured = configuredToken(context.env.GRAFT_REMOTE_TOKEN);
+app.get("/healthz", async (context) => {
+  const configured = await accessConfigured(context.env);
   return Response.json(
     { service: SERVICE, status: configured ? "ok" : "not_configured" },
     { status: configured ? 200 : 503 },
   );
+});
+
+app.get("/setup", async (context) => {
+  if (await setupClosed(context.env)) return setupPage("Setup is complete", "The access key cannot be displayed again. Use the key you saved, or configure a replacement Worker secret in Cloudflare.", "", 409);
+  return setupPage("Set up your Graft server", "Anyone who knows this public address can claim the server until setup is complete. Continue now, then save the key securely. The key grants access to every repository.", '<form method="post" action="/setup"><button type="submit">Generate access key</button></form>');
+});
+
+app.post("/setup", async (context) => {
+  if (context.req.header("Origin") !== new URL(context.req.url).origin) {
+    throw new GraftProtocolError(403, "invalid_origin", "Setup must be submitted from this server");
+  }
+  if (await setupClosed(context.env)) return setupPage("Setup is complete", "The access key cannot be displayed again.", "", 409);
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+  if (!await directory(context.env).claimAccess(await tokenHash(token))) {
+    return setupPage("Setup is complete", "The access key cannot be displayed again.", "", 409);
+  }
+  return setupPage("Save your access key", "This key is shown only once. Save it in a password manager; all devices use it to connect. It is separate from your repository encryption password.", `<pre>${token}</pre>`);
 });
 
 app.get("/.well-known/graft", (context) => {
@@ -145,7 +164,7 @@ app.route("/", remote);
 
 export default app;
 
-function directory(env: Env): DurableObjectStub<PersonalDirectoryDurableObject> {
+function directory(env: Bindings): DurableObjectStub<PersonalDirectoryDurableObject> {
   return env.DIRECTORY.getByName("personal");
 }
 
@@ -162,11 +181,53 @@ function configuredToken(value: unknown): value is string {
     && new Set(value).size >= 8;
 }
 
-async function authenticate(request: Request, env: Env): Promise<void> {
-  if (!configuredToken(env.GRAFT_REMOTE_TOKEN)) {
-    throw new GraftProtocolError(503, "service_not_configured", "Configure a strong GRAFT_REMOTE_TOKEN secret");
+async function setupClosed(env: Bindings): Promise<boolean> {
+  if (env.GRAFT_REMOTE_TOKEN !== undefined) {
+    if (configuredToken(env.GRAFT_REMOTE_TOKEN)) await directory(env).useExternalToken();
+    return true;
   }
-  await requireBearerToken(request, env.GRAFT_REMOTE_TOKEN);
+  return (await directory(env).accessState()).initialized;
+}
+
+async function accessConfigured(env: Bindings): Promise<boolean> {
+  if (env.GRAFT_REMOTE_TOKEN !== undefined) {
+    if (!configuredToken(env.GRAFT_REMOTE_TOKEN)) return false;
+    await directory(env).useExternalToken();
+    return true;
+  }
+  return (await directory(env).accessState()).tokenHash !== null;
+}
+
+async function tokenHash(token: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+  return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function authenticate(request: Request, env: Bindings): Promise<void> {
+  if (env.GRAFT_REMOTE_TOKEN !== undefined) {
+    if (!configuredToken(env.GRAFT_REMOTE_TOKEN)) throw new GraftProtocolError(503, "service_not_configured", "Configure a strong GRAFT_REMOTE_TOKEN secret");
+    await directory(env).useExternalToken();
+    return requireBearerToken(request, env.GRAFT_REMOTE_TOKEN);
+  }
+  const hash = (await directory(env).accessState()).tokenHash;
+  if (hash === null) throw new GraftProtocolError(503, "service_not_configured", "Complete server setup");
+  const authorization = request.headers.get("authorization") ?? "";
+  const candidate = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  const actual = new TextEncoder().encode(await tokenHash(candidate));
+  const expected = new TextEncoder().encode(hash);
+  if (!("timingSafeEqual" in crypto.subtle) || typeof crypto.subtle.timingSafeEqual !== "function") {
+    throw new GraftProtocolError(500, "crypto_unavailable", "Timing-safe comparison is unavailable");
+  }
+  if (actual.byteLength !== expected.byteLength || !crypto.subtle.timingSafeEqual(actual, expected)) {
+    throw new GraftProtocolError(401, "unauthorized", "A valid bearer token is required", { "WWW-Authenticate": 'Bearer realm="graft-remote"' });
+  }
+}
+
+function setupPage(title: string, description: string, content: string, status = 200): Response {
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>body{font:16px system-ui,sans-serif;max-width:36rem;margin:12vh auto;padding:0 1.25rem;line-height:1.6;color:#202124}h1{font-size:1.65rem}button{background:#222;color:white;border:0;border-radius:6px;padding:.7rem 1rem;cursor:pointer}pre{padding:1rem;background:#f2f2f2;overflow-wrap:anywhere;white-space:pre-wrap;user-select:all}</style></head><body><h1>${title}</h1><p>${description}</p>${content}</body></html>`, {
+    status,
+    headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" },
+  });
 }
 
 function repositoryName(name: string): string {

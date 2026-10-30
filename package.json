@@ -8,9 +8,6 @@
   "repository": "https://github.com/eidos-space/graft-cloudflare",
   "cloudflare": {
     "bindings": {
-      "GRAFT_REMOTE_TOKEN": {
-        "description": "Generate a random access token with at least 32 characters using `openssl rand -hex 32` or `pnpm token`. Save it in your password manager. Every device uses this token to access all repositories in this personal deployment. This is separate from your client encryption password."
-      },
       "OBJECTS": { "description": "Private storage for your Graft repository objects. R2 activation is required; usage beyond its included allowance is billed by Cloudflare." }
     }
   },
@@ -20,8 +17,8 @@
     "dev": "wrangler dev",
     "setup:local": "node scripts/setup-local.mjs",
     "token": "node scripts/token.mjs",
-    "types": "wrangler types worker-configuration.d.ts --include-runtime false",
-    "check": "wrangler types worker-configuration.d.ts --include-runtime false --check && tsc --noEmit",
+    "types": "wrangler types worker-configuration.d.ts --include-runtime false --env-file .dev.vars.example",
+    "check": "wrangler types worker-configuration.d.ts --include-runtime false --env-file .dev.vars.example --check && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "dry-run": "wrangler deploy --dry-run --outdir dist",
