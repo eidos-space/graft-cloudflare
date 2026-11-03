@@ -31,9 +31,9 @@
     "smoke:sdk": "node scripts/smoke-sdk.mjs"
   },
   "dependencies": {
-    "@eidos.space/graft-remote": "0.2.5",
-    "@eidos.space/graft-remote-cloudflare": "0.2.5",
-    "@eidos.space/graft-remote-hono": "0.2.5",
+    "@eidos.space/graft-remote": "0.2.6",
+    "@eidos.space/graft-remote-cloudflare": "0.2.6",
+    "@eidos.space/graft-remote-hono": "0.2.6",
     "hono": "4.13.7"
   },
   "devDependencies": {
