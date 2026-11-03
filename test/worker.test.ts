@@ -1,4 +1,4 @@
-import { abortAllDurableObjects, env, SELF } from "cloudflare:test";
+import { abortAllDurableObjects, env, SELF, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import app from "../src/index";
 
@@ -57,6 +57,104 @@ function encryptedObject(length = 104): Uint8Array<ArrayBuffer> {
 }
 
 describe("personal server access and discovery", () => {
+  it("drains an actual in-flight upload before removing its late bytes", async () => {
+    await create("delete-upload", { encryption: "plain" });
+    const directory = env.DIRECTORY.getByName("personal");
+    const record = await directory.lookup("delete-upload");
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const proceed = new Promise<void>(resolve => { release = resolve; });
+    const objects = new Proxy(env.OBJECTS, {
+      get(target, property) {
+        if (property === "put") return async (...args: Parameters<R2Bucket["put"]>) => { entered(); await proceed; return target.put(...args); };
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const upload = app.fetch(new Request(`${ORIGIN}/personal/delete-upload/raw-if-not-exists/objects/late`, {
+      method: "PUT", body: "late isolated bytes", headers: { Authorization: `Bearer ${TOKEN}`, "Graft-Protocol": "1" },
+    }), { ...env, OBJECTS: objects });
+    await started;
+    await request("/api/graft/repositories/delete-upload", { method: "DELETE" });
+    await runDurableObjectAlarm(directory);
+    expect(await directory.status("delete-upload")).toBe("deleting");
+    release();
+    expect((await upload).status).toBe(204);
+    for (let i = 0; i < 5 && await directory.status("delete-upload") !== "deleted"; i++) await runDurableObjectAlarm(directory);
+    expect(await directory.status("delete-upload")).toBe("deleted");
+    expect((await env.OBJECTS.list({ prefix: `repositories/${record!.id}/` })).objects).toHaveLength(0);
+    expect((await provision("delete-upload")).status).toBe(410);
+  });
+
+  it("cannot publish an initialization that was deleted while storage was opening", async () => {
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>(resolve => { entered = resolve; });
+    const proceed = new Promise<void>(resolve => { release = resolve; });
+    const objects = new Proxy(env.OBJECTS, {
+      get(target, property) {
+        if (property === "list") return async (...args: Parameters<R2Bucket["list"]>) => { entered(); await proceed; return target.list(...args); };
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const initializing = app.fetch(new Request(`${ORIGIN}/api/graft/repositories/delete-init`, {
+      method: "PUT", headers: { Authorization: `Bearer ${TOKEN}` },
+    }), { ...env, OBJECTS: objects });
+    await started;
+    const directory = env.DIRECTORY.getByName("personal");
+    await request("/api/graft/repositories/delete-init", { method: "DELETE" });
+    await runDurableObjectAlarm(directory);
+    expect(await directory.status("delete-init")).toBe("deleting");
+    release();
+    expect((await initializing).status).toBe(410);
+    for (let i = 0; i < 5 && await directory.status("delete-init") !== "deleted"; i++) await runDurableObjectAlarm(directory);
+    expect(await directory.status("delete-init")).toBe("deleted");
+    expect((await provision("delete-init")).status).toBe(410);
+  });
+  it("deletes isolated remote bytes after draining requests, survives restart, and never reuses the URL", async () => {
+    await create("delete-test", { encryption: "plain", display_name: "Same label" });
+    let directory = env.DIRECTORY.getByName("personal");
+    const record = await directory.lookup("delete-test");
+    expect(record).not.toBeNull();
+    await env.OBJECTS.put(`repositories/${record!.id}/objects/test`, "isolated bytes");
+    expect(await directory.acquire("delete-test", "held-test-request")).toBe(true);
+    const route = "/api/graft/repositories/delete-test";
+    expect((await request(route, { method: "DELETE" }, "bad")).status).toBe(401);
+    const deletion = await request(route, { method: "DELETE" });
+    expect(deletion.status).toBe(202);
+    expect(await deletion.json()).toMatchObject({ namespace: "personal", repository: "delete-test", status: "deleting" });
+    await runDurableObjectAlarm(directory);
+    expect(await env.OBJECTS.head(`repositories/${record!.id}/objects/test`)).not.toBeNull();
+    expect(await directory.acquire("delete-test", "new-request")).toBe(false);
+    expect((await provision("delete-test")).status).toBe(410);
+    expect((await request("/personal/delete-test")).status).toBe(404);
+    await abortAllDurableObjects();
+    directory = env.DIRECTORY.getByName("personal");
+    await directory.finish("held-test-request");
+    for (let i = 0; i < 5 && await directory.status("delete-test") !== "deleted"; i++) await runDurableObjectAlarm(directory);
+    expect(await (await request(route + "/status")).json()).toMatchObject({ status: "deleted" });
+    expect((await request(route, { method: "DELETE" })).status).toBe(200);
+    expect((await env.OBJECTS.list({ prefix: `repositories/${record!.id}/` })).objects).toHaveLength(0);
+    await create("delete-test-new", { display_name: "Same label" });
+    expect((await directory.lookup("delete-test-new"))?.id).not.toBe(record!.id);
+  });
+
+  it("recovers cleanup after an abandoned initialization lease", async () => {
+    let directory = env.DIRECTORY.getByName("personal");
+    await directory.reserve("abandoned-delete", "Draft", "encrypted-remote-v1");
+    await directory.acquire("abandoned-delete", "lost-test-request");
+    await directory.deleteRepository("abandoned-delete");
+    await runInDurableObject(directory, async (_instance, state) => {
+      state.storage.sql.exec("UPDATE requests SET expires_at = 0 WHERE name = 'abandoned-delete'");
+    });
+    await abortAllDurableObjects();
+    directory = env.DIRECTORY.getByName("personal");
+    await runDurableObjectAlarm(directory);
+    expect(await directory.status("abandoned-delete")).toBe("deleted");
+    expect(await directory.publish("abandoned-delete", "old-id")).toBeNull();
+  });
   it("advertises its own origin without an account or an access token", async () => {
     const health = await SELF.fetch(`${ORIGIN}/healthz`);
     expect(health.status).toBe(200);

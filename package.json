@@ -8,11 +8,15 @@
   "repository": "https://github.com/eidos-space/graft-cloudflare",
   "cloudflare": {
     "bindings": {
-      "OBJECTS": { "description": "Private storage for your Graft repository objects. R2 activation is required; usage beyond its included allowance is billed by Cloudflare." }
+      "OBJECTS": {
+        "description": "Private storage for your Graft repository objects. R2 activation is required; usage beyond its included allowance is billed by Cloudflare."
+      }
     }
   },
   "packageManager": "pnpm@10.14.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "setup:local": "node scripts/setup-local.mjs",
@@ -35,9 +39,15 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.4.10",
     "@cloudflare/workers-types": "5.20261029.1",
+    "@types/node": "20.19.1",
     "typescript": "7.0.2",
     "vitest": "4.1.11",
     "wrangler": "4.155.0"
   },
-  "pnpm": { "onlyBuiltDependencies": ["esbuild", "workerd"] }
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ]
+  }
 }

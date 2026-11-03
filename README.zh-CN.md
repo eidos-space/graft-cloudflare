@@ -141,8 +141,9 @@ graft clone "$GRAFT_ORIGIN/personal/cli-example" main
 Graft 从 `GRAFT_REMOTE_TOKEN` 环境变量读取密钥。`graft+http://` 仅用于本机回环开发，
 部署后的加密仓库要求 HTTPS。
 
-当前已发布的 Eidos Lite 云同步入口仍限制为官方服务。本仓库不会为 Lite 增加自托管设置页。
-连接加密仓库需要支持 encrypted remote 的 Graft 集成；明文 CLI 测试不能证明 Lite 加密客户端兼容性。
+在 Eidos Lite 的**设置 → 账户与服务 → 同步 → 自定义服务器**中添加服务器地址和访问密钥。
+Lite 的自托管同步需要 Spark 功能；服务器本身不使用 Eidos 账户或订阅。
+同步密码单独用于加密和解锁 Space。明文 CLI 测试不能证明加密客户端兼容性。
 
 ## 存储、额度和运维
 
@@ -156,7 +157,7 @@ Graft 从 `GRAFT_REMOTE_TOKEN` 环境变量读取密钥。`graft+http://` 仅用
 - [运维与备份边界](docs/OPERATIONS.md)
 - [管理 API](docs/API.zh-CN.md)
 
-服务不调用官方账户接口，不检查订阅，不提供按用户配额、自动垃圾回收、仓库删除 API
+服务不调用官方账户接口，不检查订阅，不提供按用户配额、活跃仓库自动垃圾回收
 或内置的一致性备份/导出命令。所有仓库共用该 Cloudflare 账户的资源。
 
 ## 验证改动
@@ -173,7 +174,8 @@ pnpm dry-run
 
 运行 `pnpm dev` 后，`pnpm smoke` 会读取本地 `.dev.vars`，创建少量冒烟仓库并检查服务。
 验证自己的部署时，请显式设置 `GRAFT_SMOKE_ORIGIN` 和 `GRAFT_REMOTE_TOKEN`。
-每次运行会永久创建两个仓库，其中一个是明文仓库；目前没有仓库删除 API。
+每次运行会创建两个仓库，其中一个是明文仓库；脚本不会自动删除它们。
+可以对这些测试名称调用管理 DELETE 接口清理。
 如果不希望测试记录和对象留在个人服务中，请使用临时部署。
 
 `pnpm smoke:sdk` 还会验证加密初始化、两个独立设备会话，以及 SQLite 和附件回传。

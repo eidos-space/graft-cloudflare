@@ -161,10 +161,11 @@ current directory; its second argument is a branch, not a destination folder.
 Graft reads the bearer token from `GRAFT_REMOTE_TOKEN`. Use `graft+http://` only
 for loopback development. Deployed encrypted repositories require HTTPS.
 
-Current released Eidos Lite clients still restrict cloud connections to the
-official service. This server does not add a self-host settings page to Lite.
-Use an encrypted-remote-capable Graft integration to connect; a plain CLI test
-does not establish Lite encrypted-client compatibility.
+In Eidos Lite, add the server origin and access key under **Settings → Account &
+Services → Sync → Custom servers**. Self-hosted Sync requires Lite's Spark feature;
+the server itself does not use an Eidos account or subscription. Use the sync
+password separately to encrypt and unlock a Space. A plain CLI test does not
+establish encrypted-client compatibility.
 
 ## Storage, limits, and operations
 
@@ -181,7 +182,7 @@ or unlimited storage; request CPU and upload limits also apply.
 - [Management API](docs/API.md)
 
 The service has no official-account calls, subscription checks, per-user quotas,
-automatic garbage collection, repository deletion API, or built-in coordinated
+automatic garbage collection for active repositories, or built-in coordinated
 backup/export command. All repositories share the account's resources.
 
 ## Validate changes
@@ -200,8 +201,8 @@ bundle. Native-client and actual deployment results are recorded separately in
 With `pnpm dev` running, `pnpm smoke` checks a local server using `.dev.vars`.
 It creates small smoke repositories. To target your own deployed server, set
 `GRAFT_SMOKE_ORIGIN` and `GRAFT_REMOTE_TOKEN` explicitly. Each run creates two
-permanent repositories, including one plain repository; there is currently no
-repository deletion API. Use a disposable deployment if you do not want those
+repositories, including one plain repository. The script does not delete them.
+Use the management DELETE endpoint for those test names, or a disposable deployment if you do not want those
 test records and objects in your personal service.
 
 `pnpm smoke:sdk` additionally exercises encrypted initialization, two independent
