@@ -72,10 +72,17 @@ local directory before relying on a backup.
 ## Storage reclamation and deletion
 
 Failed conditional updates can leave unreachable immutable bytes. There is no
-automatic garbage collector or repository deletion endpoint in this version.
+automatic garbage collector for active repositories.
 Do not reclaim space by guessing reachability from object names or timestamps.
 Do not delete metadata or rename namespaces to reset a repository: its published
 identity and encryption state are part of its storage contract.
+
+Use the authenticated repository DELETE endpoint to remove a remote copy and its
+history. Local folders remain untouched. Status stays `deleting` while requests
+drain and cleanup retries; durable alarms resume after restart. Cleanup aborts
+multipart uploads, purges repository metadata, then removes all repository-prefixed
+objects. A small directory tombstone remains and prevents reuse of the technical
+name/URL. Repeated DELETE is safe. See [API](API.md) for polling and status codes.
 
 For planned retirement, first verify independent local copies and backups,
 disconnect clients, and then use Cloudflare's resource administration with a

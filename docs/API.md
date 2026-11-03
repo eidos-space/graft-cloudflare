@@ -15,9 +15,27 @@ password to these endpoints.
 | GET | `/api/graft/repositories` | List the owner's repositories |
 | PUT | `/api/graft/repositories/:name` | Idempotent explicit repository provisioning |
 | PATCH | `/api/graft/repositories/:name` | Change the display name only |
+| DELETE | `/api/graft/repositories/:name` | Start or retry remote deletion |
+| GET | `/api/graft/repositories/:name/status` | Read deletion status |
 
-The final three endpoints require the shared token. The fixed `personal`
+All `/api/graft/` endpoints require the shared token. The fixed `personal`
 protocol namespace does not represent an account or tenant.
+
+## Encrypted object verification
+
+Encrypted repositories advertise `e2ee-object-proof-v1` when supported. The shared
+Graft protocol handler validates a fresh 32-byte challenge and constructs the
+repository-bound prefix for `POST /personal/:name/e2ee/object-proof/:opaqueKey`.
+The opaque key uses literal slash-separated segments; percent-encoded paths are
+rejected. The backend streams one persisted R2 snapshot and returns the SHA-256
+of the prefix and actual ciphertext, with its measured byte count. It does not
+use upload-time digests or cache challenge responses.
+
+Each repository admits at most two concurrent proofs; excess requests receive
+429. Reads stop on caller cancellation or after 60 seconds, returning an error
+rather than a partial proof. Deletion waits for admitted proofs to finish and
+rejects new ones. Older clients can continue using ordinary authenticated reads.
+This check verifies current bytes; it is not a backup or a future durability guarantee.
 
 ## Provisioning
 
@@ -83,4 +101,21 @@ Clients must use the persisted descriptor to establish the encryption identity.
 They must not assume changing a URL migrates an existing encrypted remote.
 This management API does not accept encryption passwords or decrypted keys.
 
-There is no repository deletion or garbage-collection endpoint in this version.
+## Capabilities and deletion
+
+Discovery advertises `management.version: 1` and
+`management.capabilities: ["rename", "delete"]`, alongside the same-origin
+`management.repositories` URL. Clients hide actions missing from this declaration;
+older discovery responses remain valid for listing and provisioning.
+
+DELETE returns 202 while cleanup is pending, or 200 if already complete. GET status
+returns 200. Both use `{namespace: "personal", repository: "notes", status: "deleting"}`;
+status is `active`, `deleting`, or `deleted`. Unknown names return 404. Lists include
+active/deleting entries with a `status` field, and exclude completed deletions.
+
+Deletion permanently removes the remote copy and history, never local device files.
+Admission closes before cleanup, in-flight requests drain, and durable alarms retry
+cleanup after failures or restarts. Repeating DELETE is safe. Tombstones retain the
+technical name: PUT on a deleted name returns 410. Use a new technical name for a
+new repository; display names can be reused without reusing the identity or URL.
+There is no general garbage collector for unreachable objects in active repositories.

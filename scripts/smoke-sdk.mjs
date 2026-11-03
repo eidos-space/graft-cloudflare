@@ -59,8 +59,9 @@ try {
   await source.commit("Initial encrypted smoke data");
   const commit = (await source.repositoryMetadata()).current_head;
   assert.equal(await first.initializeConfig(Buffer.from(password), { branch: "main", commit }), "config_published");
-  const initialized = await source.pushInitialBranch({ verificationDirectory: join(root, "verified") });
+  const initialized = await source.pushInitialBranch();
   assert.equal(initialized.state, "connected");
+  assert.equal(initialized.verification, "publication");
 
   const second = await authority("second");
   await assert.rejects(second.unlock(Buffer.from("incorrect smoke password")));

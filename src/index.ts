@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { withObjectProof } from "./object-proof.js";
 import { GraftProtocolError, createGraftRemote } from "@eidos.space/graft-remote-hono";
 import {
   createEncryptedCloudflareRepository,
@@ -11,11 +12,11 @@ import {
   type RepositoryRecord,
 } from "./directory.js";
 
-export { RepositoryDurableObject } from "@eidos.space/graft-remote-cloudflare";
+export { RepositoryDurableObject } from "./repository.js";
 export { PersonalDirectoryDurableObject } from "./directory.js";
 
 type Bindings = Env & { GRAFT_REMOTE_TOKEN?: string };
-type AppEnv = { Bindings: Bindings };
+type AppEnv = { Bindings: Bindings; Variables: { lease?: { id: string; timer: ReturnType<typeof setInterval> } } };
 const SERVICE = "graft-cloudflare";
 const NAMESPACE = "personal";
 const MANAGEMENT_BODY_LIMIT = 4096;
@@ -26,7 +27,14 @@ app.use("*", async (context, next) => {
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback(url.hostname))) {
     throw new GraftProtocolError(400, "secure_transport_required", "Use HTTPS; HTTP is only allowed on localhost");
   }
-  await next();
+  try { await next(); }
+  finally {
+    const lease = context.get("lease");
+    if (lease) {
+      clearInterval(lease.timer);
+      await directory(context.env).finish(lease.id);
+    }
+  }
   context.header("Cache-Control", "no-store");
   context.header("Graft-Protocol", "1");
   context.header("X-Content-Type-Options", "nosniff");
@@ -82,7 +90,7 @@ app.get("/.well-known/graft", (context) => {
     version: 1,
     remote_url_template: `${origin}/${NAMESPACE}/{repository}`,
     authentication: { scheme: "bearer", authority: origin },
-    management: { repositories: `${origin}/api/graft/repositories` },
+    management: { repositories: `${origin}/api/graft/repositories`, version: 1, capabilities: ["rename", "delete"] },
   });
 });
 
@@ -107,9 +115,11 @@ app.put("/api/graft/repositories/:name", async (context) => {
   const store = directory(context.env);
   const reservation = await store.reserve(name, displayName, profile);
   if (!reservation.ok) {
+    if (reservation.reason === "repository_deleted") throw new GraftProtocolError(410, "repository_deleted", "This repository was deleted; create a new repository name");
     throw new GraftProtocolError(409, "profile_conflict", "The repository encryption profile cannot change");
   }
   const repository = reservation.repository;
+  await admit(context, name);
   // Directory reservations are durable before this I/O. Concurrent requests and failed
   // responses all retry the same profile and UUID, never create an implicit plain remote.
   if (!repository.ready) {
@@ -119,7 +129,7 @@ app.put("/api/graft/repositories/:name", async (context) => {
     } else {
       await createEncryptedCloudflareRepository(storage, repository.id, repository.encryption.uuid);
     }
-    await store.publish(name, repository.id);
+    if (!await store.publish(name, repository.id)) throw new GraftProtocolError(410, "repository_deleted", "Repository was deleted while initializing");
   }
   return Response.json(
     {
@@ -140,6 +150,15 @@ app.patch("/api/graft/repositories/:name", async (context) => {
   return context.json({ namespace: NAMESPACE, repository: name, ...representation(repository, context.req.url) });
 });
 
+for (const action of ["delete", "status"] as const) {
+  app.on(action === "delete" ? "DELETE" : "GET", `/api/graft/repositories/:name${action === "status" ? "/status" : ""}`, async context => {
+    const name = repositoryName(context.req.param("name"));
+    const status = action === "delete" ? await directory(context.env).deleteRepository(name) : await directory(context.env).status(name);
+    if (status === null) throw new GraftProtocolError(404, "repository_not_found", "Repository not found");
+    return Response.json({ namespace: NAMESPACE, repository: name, status }, { status: action === "delete" && status === "deleting" ? 202 : 200 });
+  });
+}
+
 const remote = createGraftRemote<AppEnv>({
   async authenticate({ request, adapterContext }) {
     await authenticate(request, adapterContext.env);
@@ -151,18 +170,30 @@ const remote = createGraftRemote<AppEnv>({
     }
     const found = await directory(input.adapterContext.env).lookup(repository.name);
     if (found === null) throw new GraftProtocolError(404, "repository_not_found", "Repository not found");
+    await admit(input.adapterContext, repository.name);
     return found.id;
   },
-  backend({ adapterContext, repository }) {
-    return openCloudflareRepository(
+  async backend({ adapterContext, repository }) {
+    return withObjectProof(await openCloudflareRepository(
       { objects: adapterContext.env.OBJECTS, repositories: adapterContext.env.REPOSITORIES },
       repository.id,
-    );
+    ), adapterContext.req.raw.signal);
   },
 });
 app.route("/", remote);
 
 export default app;
+
+async function admit(context: Context<AppEnv>, name: string): Promise<void> {
+  if (context.get("lease")) return;
+  const proof = new URL(context.req.url).pathname.includes("/e2ee/object-proof/");
+  const id = (proof ? "proof:" : "") + crypto.randomUUID();
+  const admission = proof ? await directory(context.env).acquireProof(name, id) : await directory(context.env).acquire(name, id);
+  if (admission === "busy") throw new GraftProtocolError(429, "object_proof_busy", "Too many object proof requests");
+  if (!admission) throw new GraftProtocolError(410, "repository_deleted", "Repository is being deleted");
+  const timer = setInterval(() => { void directory(context.env).renew(id).catch(() => console.error("Repository request renewal failed")); }, 20_000);
+  context.set("lease", { id, timer });
+}
 
 function directory(env: Bindings): DurableObjectStub<PersonalDirectoryDurableObject> {
   return env.DIRECTORY.getByName("personal");
@@ -309,6 +340,7 @@ function missingDisplayName(): never {
 
 function representation(repository: RepositoryRecord, url: string) {
   return {
+    status: repository.status,
     name: repository.name,
     display_name: repository.displayName,
     created_at: repository.createdAt,
